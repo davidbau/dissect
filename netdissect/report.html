@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"
+  integrity="sha256-CMMTrj5gGwOAXBeFi7kNokqowkzbeL8ydAJy39ewjkQ="
+  crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/lodash@4.17.10/lodash.js"
+  integrity="sha256-qwbDmNVLiCqkqRBpF46q5bjYH11j5cd+K+Y6D3/ja28="
+  crossorigin="anonymous"></script>
+<script
+  src="https://code.jquery.com/jquery-3.3.1.js"
+  integrity="sha256-2Kok7MbOyxpgUVvAk/HJ2jigOSYS2auK4Pfzbm7uH60="
+  crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/csv-js@1.0.0/csv.js"
+  integrity="sha256-+aP5dQ9d0B/YIqKRETp8wA0YYl4sqXdUG9QM7M9A42E="
+  crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lity/2.3.1/lity.js"
+  integrity="sha256-28JiZvE/RethQIYCwkMdtSMHgI//KoTLeB2tSm10trs="
+  crossorigin="anonymous"></script>
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/lity/2.3.1/lity.css"
+  integrity="sha256-76wKiAXVBs5Kyj7j0T43nlBCbvR6pqdeeZmXI4ATnY0="
+  crossorigin="anonymous" />
+<style>
+.header { display: block; margin: 1px; text-align: center; }
+.header img {max-width: 90pw}
+.thumb { display: block; margin: 1px; text-align: center; }
+.thumb img, .thumb div { max-width: 90pw; word-break: break-all; }
+.header a { text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="report" v-if="header && units">
+<div class="header">
+  <h2>{{ header.name }}</h2>
+  <img :src="header.image">
+  <div>sort by:
+    <a @click="sort_order = ['iou']; sort_dir = ['desc']"
+      >iou</a>
+    <a @click="sort_order = ['label', 'iou']; sort_dir = ['asc', 'desc']" 
+      >label</a>
+    <a @click="sort_order = ['unit']; sort_dir = ['asc']"
+      >unit</a>
+  </div>
+</div>
+<div v-for="r in _.orderBy(units, sort_order, sort_dir)"
+  class="thumb">
+  <div style="display: inline-block">
+  <div style="text-align:left;">unit {{ r.unit }} ({{ r.label }}, iou {{ r.iou | fixed(4) }}) </div>
+<a :href="r.image" data-lity><img :src="r.image"></a>
+  </div>
+</div>
+</div><!--app-->
+</body>
+<script>
+var theapp = new Vue({
+  el: '#report',
+  data: {
+    header: null,
+    units: null,
+    sort_order: ['unit'],
+    sort_dir: ['desc']
+  },
+  created: function() {
+    var self = this;
+    $.getJSON('./report.json?' + Math.random(), function(d) {
+      self.header = d.header;
+      self.units= d.units;
+    });
+  },
+  filters: {
+    fixed: function(value, digits, truncate) {
+       if (typeof value != 'number') return value;
+       var fixed = value.toFixed(digits);
+       return truncate ? +fixed : fixed;
+    }
+  }
+})
+</script>
+</html>
