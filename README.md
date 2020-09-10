@@ -1,10 +1,21 @@
-# Understanding the Role of Individual Units in a Deep Network
+# What is the Role of a Neuron?
 
-When a deep network is trained on a high-level task such as classifying a place or synthesizing a scene, individual neural units within the network will often emerge that match specific human-interpretable concepts, like "trees", "windows", or "human faces." This is striking when the matched classes are not explicitly labeled in training. Why are these units learned, and what are they for?
+When a deep network is trained on a high-level task such as classifying a place or synthesizing a scene, individual neural units within the network will often emerge that match specific human-interpretable concepts, like "trees", "windows", or "human faces."
 
 What role do such individual units serve within a deep network?
 
 We examine this question in two types of networks that contain interpretable units: networks trained to classify images of scenes (supervised image classifiers), and networks trained to synthesize images of scenes (generative adversarial networks).
+
+[**Understanding the Role of Individual Units in a Deep Network**](https://dissect.csail.mit.edu/).<br>
+[David Bau](https://people.csail.mit.edu/davidbau/home/), [Jun-Yan Zhu](https://www.cs.cmu.edu/~junyanz/), [Hendrik Strobelt](http://hendrik.strobelt.com/), [Agata Lapedriza](https://www.media.mit.edu/people/agata/overview/), [Bolei Zhou](http://bzhou.ie.cuhk.edu.hk/), [Antonio Torralba](http://web.mit.edu/torralba/www/). <br>
+Proceedings of the National Academy of Sciences, September 2020.<br>
+MIT, MIT-IBM Watson AI Lab, IBM Research, The Chinese University of Hong Kong, Adobe Research
+
+<table><tr>
+<td><center><a href="https://doi.org/10.1073/pnas.1907375117"><img height="100" width="78" src="www/paper-thumb.png" style="border:1px solid" style="border:1px solid black"><br>PNAS Paper</a></center></td>
+<td><center><a href="https://dissect.csail.mit.edu/" class="d-inline-block p-3 align-top"><img height="100" width="78" src="www/website-thumb.png" style="border:1px solid black"><br>Website</a></center></td>
+</tr></table>
+
 
 ## Dissecting Units in Classifiers and Generators
 
