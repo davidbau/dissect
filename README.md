@@ -14,6 +14,7 @@ MIT, MIT-IBM Watson AI Lab, IBM Research, The Chinese University of Hong Kong, A
 <table><tr>
 <td><center><a href="https://doi.org/10.1073/pnas.1907375117"><img height="100" width="78" src="www/paper-thumb.png" style="border:1px solid" style="border:1px solid black"><br>PNAS Paper</a></center></td>
 <td><center><a href="https://dissect.csail.mit.edu/" class="d-inline-block p-3 align-top"><img height="100" width="78" src="www/website-thumb.png" style="border:1px solid black"><br>Website</a></center></td>
+<td><center><a href="https://arxiv.org/pdf/2009.05041.pdf" class="d-inline-block p-3 align-top"><img height="100" width="78" src="www/arxiv-thumb.png" style="border:1px solid black"><br>arXiv</a></center></td>
 </tr></table>
 
 
@@ -36,3 +37,23 @@ To investigate the role of such units within classifiers, we measure the impact 
 In a generative network, we can understand causal effects of neurons by observing changes to output images when sets of units are turned on and off. We find causal effects are strong enough to enable users to paint images out of object classes by activating neurons; we also find that some units reveal interactions between objects and specific contexts within a model.
 
 ![Genereator Intervention Experiments](/www/generator-intervention.png)
+
+## Citation
+
+Bau, David, Jun-Yan Zhu, Hendrik Strobelt, Agata Lapedriza, Bolei Zhou, and Antonio Torralba. *Understanding the role of individual units in a deep neural network.* Proceedings of the National Academy of Sciences (2020).
+
+## Bibtex
+
+```
+@article{bau2020role,
+  author = {Bau, David and Zhu, Jun-Yan and Strobelt, Hendrik and Lapedriza, Agata and Zhou, Bolei and Torralba, Antonio},
+  title = {Understanding the role of individual units in a deep neural network},
+  elocation-id = {201907375},
+  year = {2020},
+  doi = {10.1073/pnas.1907375117},
+  publisher = {National Academy of Sciences},
+  issn = {0027-8424},
+  URL = {https://www.pnas.org/content/early/2020/08/31/1907375117},
+  journal = {Proceedings of the National Academy of Sciences}
+}
+```
