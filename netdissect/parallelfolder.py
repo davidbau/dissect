@@ -4,16 +4,22 @@ information, such as parallel feature channels in separate files,
 cached files with lists of filenames, etc.
 '''
 
-import os, torch, re, random, numpy, itertools
+import os
+import re
+import random
+import numpy
+import itertools
 import torch.utils.data as data
 from torchvision.datasets.folder import default_loader as tv_default_loader
 from PIL import Image
 from collections import OrderedDict
 from . import pbar
 
+
 def grayscale_loader(path):
     with open(path, 'rb') as f:
         return Image.open(f).convert('L')
+
 
 class ndarray(numpy.ndarray):
     '''
@@ -21,6 +27,7 @@ class ndarray(numpy.ndarray):
     be attached as an attribute.
     '''
     pass
+
 
 def default_loader(filename):
     '''
@@ -32,6 +39,7 @@ def default_loader(filename):
         return numpy.load(filename)
     else:
         return tv_default_loader(filename)
+
 
 class ParallelImageFolders(data.Dataset):
     """
@@ -45,32 +53,34 @@ class ParallelImageFolders(data.Dataset):
     photo2/park/004236.png
     photo2/park/004237.png
     """
+
     def __init__(self, image_roots,
-            transform=None,
-            loader=default_loader,
-            stacker=None,
-            classification=False,
-            intersection=False,
-            filter_tuples=None,
-            normalize_filename=None,
-            verbose=None,
-            size=None,
-            shuffle=None,
-            lazy_init=True):
+                 transform=None,
+                 loader=default_loader,
+                 stacker=None,
+                 classification=False,
+                 intersection=False,
+                 filter_tuples=None,
+                 normalize_filename=None,
+                 verbose=None,
+                 size=None,
+                 shuffle=None,
+                 lazy_init=True):
         self.image_roots = image_roots
         if transform is not None and not hasattr(transform, '__iter__'):
             transform = [transform for _ in image_roots]
         self.transforms = transform
         self.stacker = stacker
         self.loader = loader
+
         def do_lazy_init():
             self.images, self.classes, self.class_to_idx = (
-                    make_parallel_dataset(image_roots,
-                        classification=classification,
-                        intersection=intersection,
-                        filter_tuples=filter_tuples,
-                        normalize_fn=normalize_filename,
-                        verbose=verbose))
+                make_parallel_dataset(image_roots,
+                                      classification=classification,
+                                      intersection=intersection,
+                                      filter_tuples=filter_tuples,
+                                      normalize_fn=normalize_filename,
+                                      verbose=verbose))
             if len(self.images) == 0:
                 raise RuntimeError("Found 0 images within: %s" % image_roots)
             if shuffle is not None:
@@ -108,8 +118,8 @@ class ParallelImageFolders(data.Dataset):
                 pass
         if self.transforms is not None:
             sources = [transform(source) if transform is not None else source
-                    for source, transform
-                    in itertools.zip_longest(sources, self.transforms)]
+                       for source, transform
+                       in itertools.zip_longest(sources, self.transforms)]
         if self.stacker is not None:
             sources = self.stacker(sources)
             if self.classes is not None:
@@ -125,11 +135,14 @@ class ParallelImageFolders(data.Dataset):
             self._do_lazy_init()
         return len(self.images)
 
+
 def is_npy_file(path):
     return path.endswith('.npy') or path.endswith('.NPY')
 
+
 def is_image_file(path):
     return None != re.search(r'\.(jpe?g|png)$', path, re.IGNORECASE)
+
 
 def walk_image_files(rootdir, verbose=None):
     indexfile = '%s.txt' % rootdir
@@ -137,19 +150,20 @@ def walk_image_files(rootdir, verbose=None):
         basedir = os.path.dirname(rootdir)
         with open(indexfile) as f:
             result = sorted([os.path.join(basedir, line.strip())
-                for line in f.readlines()])
+                             for line in f.readlines()])
             return result
     result = []
     for dirname, _, fnames in sorted(pbar(os.walk(rootdir),
-            desc='Walking %s' % os.path.basename(rootdir))):
+                                          desc='Walking %s' % os.path.basename(rootdir))):
         for fname in sorted(fnames):
             if is_image_file(fname) or is_npy_file(fname):
                 result.append(os.path.join(dirname, fname))
     return result
 
+
 def make_parallel_dataset(image_roots, classification=False,
-        intersection=False, filter_tuples=None, normalize_fn=None,
-        verbose=None):
+                          intersection=False, filter_tuples=None, normalize_fn=None,
+                          verbose=None):
     """
     Returns ([(img1, img2, clsid), (img1, img2, clsid)..],
              classes, class_to_idx)
@@ -157,7 +171,7 @@ def make_parallel_dataset(image_roots, classification=False,
     image_roots = [os.path.expanduser(d) for d in image_roots]
     image_sets = OrderedDict()
     if normalize_fn is None:
-        normalize_fn = lambda x: os.path.splitext(x)[0]
+        def normalize_fn(x): return os.path.splitext(x)[0]
     for j, root in enumerate(image_roots):
         for path in walk_image_files(root, verbose=verbose):
             key = normalize_fn(os.path.relpath(path, root))
@@ -169,7 +183,7 @@ def make_parallel_dataset(image_roots, classification=False,
             image_sets[key].append(path)
     if classification:
         classes = sorted(set([os.path.basename(os.path.dirname(k))
-            for k in image_sets.keys()]))
+                              for k in image_sets.keys()]))
         class_to_idx = dict({k: v for v, k in enumerate(classes)})
         for k, v in image_sets.items():
             v.append(class_to_idx[os.path.basename(os.path.dirname(k))])
@@ -188,4 +202,3 @@ def make_parallel_dataset(image_roots, classification=False,
             continue
         tuples.append(value)
     return tuples, classes, class_to_idx
-
