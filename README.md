@@ -20,7 +20,7 @@ MIT, MIT-IBM Watson AI Lab, IBM Research, The Chinese University of Hong Kong, A
 
 ## Dissecting Units in Classifiers and Generators
 
-Network dissection compares individual network units to the predictions of a semantic segmentation network that has been trained to label pixels with a broad set of object, part, materrial and color classes. This technique gives us a standard and scalable way to identify any units within the networks we analyze that match those same semantic classes.
+Network dissection compares individual network units to the predictions of a semantic segmentation network that can label pixels with a broad set of object, part, material, and color classes. This technique gives us a standard and scalable way to identify any units within the networks that match those same semantic classes.
 
 It works both in classification settings where the image is the input, and in generative settings where the image is the output.
 
@@ -34,7 +34,7 @@ To investigate the role of such units within classifiers, we measure the impact 
 
 ![Classifier Intervention Experiments](/www/classifier-intervention.png)
 
-In a generative network, we can understand causal effects of neurons by observing changes to output images when sets of units are turned on and off. We find causal effects are strong enough to enable users to paint images out of object classes by activating neurons; we also find that some units reveal interactions between objects and specific contexts within a model.
+In a generative network, we can understand the causal effects of neurons by observing changes to output images when sets of units are turned on and off. We find causal effects are strong enough to enable users to paint images out of object classes by activating neurons; we also find that some units reveal interactions between objects and specific contexts within a model.
 
 ![Genereator Intervention Experiments](/www/generator-intervention.png)
 
