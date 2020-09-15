@@ -13,6 +13,7 @@ MIT, MIT-IBM Watson AI Lab, IBM Research, The Chinese University of Hong Kong, A
 
 <table><tr>
 <td><center><a href="https://doi.org/10.1073/pnas.1907375117"><img height="100" width="78" src="www/paper-thumb.png" style="border:1px solid" style="border:1px solid black"><br>PNAS Paper</a></center></td>
+<td><center><a href="http://dissect.csail.mit.edu/paper/si.pdf"><img height="100" width="78" src="www/si-thumb.png" style="border:1px solid" style="border:1px solid black"><br>Supplemental</a></center></td>
 <td><center><a href="https://dissect.csail.mit.edu/" class="d-inline-block p-3 align-top"><img height="100" width="78" src="www/website-thumb.png" style="border:1px solid black"><br>Website</a></center></td>
 <td><center><a href="https://arxiv.org/pdf/2009.05041.pdf" class="d-inline-block p-3 align-top"><img height="100" width="78" src="www/arxiv-thumb.png" style="border:1px solid black"><br>arXiv</a></center></td>
 </tr></table>
