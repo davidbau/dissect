@@ -37,6 +37,7 @@ def main():
     percent_level = 1.0 - args.quantile
 
     # Tally rq.np (representation quantile, unconditional).
+    torch.set_grad_enabled(False)
     pbar.descnext('rq')
     def compute_samples(batch, *args):
         data_batch = batch.cuda()

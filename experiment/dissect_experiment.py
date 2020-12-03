@@ -46,6 +46,7 @@ def main():
     percent_level = 1.0 - args.quantile
     iou_threshold = args.miniou
     image_row_width = 5
+    torch.set_grad_enabled(False)
 
     # Tally rq.np (representation quantile, unconditional).
     pbar.descnext('rq')

@@ -1,8 +1,25 @@
 '''
-Running statistics on the GPU using pytorch.
+Running statistics on the GPU using pytorch, by David Bau.
 
 RunningTopK maintains top-k statistics for a set of channels in parallel.
 RunningQuantile maintains (sampled) quantile statistics for a set of channels.
+RunningVariance calculate running mean and variance statistics stably.
+RunningCovariance and RunningCrossCovariance accumulate covariance statistics.
+RunningSecondMoment adds up 2nd moment (covariance without subtracting mean).
+RunningBincount does a running sparse count.
+RunningAllIntersectionAndUnion count up intersection and unions.
+RunningConditional[stats] keeps many running stats, each conditioned on a key.
+
+Batchwise tally functions, analogous to tensor.topk, mean+variance,
+bincount, covaraince, and sort (for quantiles), implemented in a way
+that permits fast computation of statistics over large data sets that
+do not fit in memory at once.
+
+These functions are useful because, while many statistics are much
+cheaper to compute on the GPU than on the CPU, they may require too
+much memory to compute all at once.  Instead the statistics need
+to be computed in a running fashion, one batch at a time, and
+accumulated in a way that economizes GPU memory.
 '''
 
 import torch
@@ -15,14 +32,15 @@ class RunningTopK:
     '''
     A class to keep a running tally of the the top k values (and indexes)
     of any number of torch feature components.  Will work on the GPU if
-    the data is on the GPU.
+    the data is on the GPU.  Tracks largest by default, but tracks smallest
+    if largest=False is passed.
 
     This version flattens all arrays to avoid crashes.
     '''
 
-    def __init__(self, k=100, state=None):
+    def __init__(self, k=100, largest=True, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.k = k
         self.count = 0
@@ -35,6 +53,7 @@ class RunningTopK:
         self.next = 0
         self.linear_index = 0
         self.perm = None
+        self.largest = largest
 
     def add(self, data, index=None):
         '''
@@ -63,8 +82,8 @@ class RunningTopK:
         # Pick: copy the top sk of the next batch into the buffer.
         # Currently strided topk is slow.  So we clone after transpose.
         # TODO: remove the clone() if it becomes faster.
-        cdata = data.contiguous().view(size, -1).t().clone()
-        td, ti = cdata.topk(sk, sorted=False)
+        cdata = data.reshape(size, -1).t().clone()
+        td, ti = cdata.topk(sk, sorted=False, largest=self.largest)
         self.top_data[:, self.next:self.next + sk] = td
         if index is not None:
             ti = index[ti]
@@ -84,7 +103,8 @@ class RunningTopK:
         '''
         k = min(self.k, self.next)
         # bti are top indexes relative to buffer array.
-        td, bti = self.top_data[:, :self.next].topk(k, sorted=sorted)
+        td, bti = self.top_data[:, :self.next].topk(k,
+                sorted=sorted, largest=self.largest)
         # we want to report top indexes globally, which is ti.
         ti = self.top_index.view(-1)[
             (bti + self.linear_index).view(-1)
@@ -107,9 +127,10 @@ class RunningTopK:
             self.__class__.__name__ + '()',
             k=self.k,
             count=self.count,
+            largest=self.largest,
             data_shape=tuple(self.data_shape),
-            top_data=self.top_data.cpu().numpy(),
-            top_index=self.top_index.cpu().numpy(),
+            top_data=self.top_data.cpu().detach().numpy(),
+            top_index=self.top_index.cpu().detach().numpy(),
             next=self.next,
             linear_index=(self.linear_index.cpu().numpy()
                           if isinstance(self.linear_index, torch.Tensor)
@@ -119,6 +140,7 @@ class RunningTopK:
     def set_state_dict(self, dic):
         self.k = dic['k'].item()
         self.count = dic['count'].item()
+        self.largest = dic.get('largest', numpy.array(True)).item()
         self.data_shape = tuple(dic['data_shape'])
         self.top_data = torch.from_numpy(dic['top_data'])
         self.top_index = torch.from_numpy(dic['top_index'])
@@ -132,7 +154,7 @@ class RunningConditionalTopK:
     def __init__(self, k=None, state=None):
         self.running_topk = {}
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.k = k
         self.count = 0
@@ -192,7 +214,7 @@ class GatherTensor:
 
     def __init__(self, topk=None, data_shape=None, k=None, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         if k is None and topk is not None:
             k = topk.k
@@ -273,7 +295,7 @@ class RunningQuantile:
     def __init__(self, r=3 * 1024, buffersize=None, seed=None,
                  state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.depth = None
         self.dtype = None
@@ -411,10 +433,12 @@ class RunningQuantile:
             depth=self.depth,
             buffersize=self.buffersize,
             samplerate=self.samplerate,
-            data=[d.cpu().numpy()[:, :f].T
-                  for d, f in zip(self.data, self.firstfree)],
+            data=numpy.array([d.cpu().detach().numpy()[:, :f].T
+                  for d, f in zip(self.data, self.firstfree)]
+                  # None prevents absorbing floats into object array
+                  + [None], dtype=object),
             sizes=[d.shape[1] for d in self.data],
-            extremes=self.extremes.cpu().numpy(),
+            extremes=self.extremes.cpu().detach().numpy(),
             size=self.count,
             batchcount=self.batchcount)
 
@@ -547,9 +571,9 @@ class RunningQuantile:
         result = torch.zeros(self.depth, quantiles.numel(),
                              dtype=self.dtype, device=self.device)
         # numpy is needed for interpolation
-        nq = quantiles.view(-1).cpu().numpy()
-        ncw = cumweights.cpu().numpy()
-        nsm = summary.cpu().numpy()
+        nq = quantiles.view(-1).cpu().detach().numpy()
+        ncw = cumweights.cpu().detach().numpy()
+        nsm = summary.cpu().detach().numpy()
         for d in range(self.depth):
             result[d] = torch.tensor(numpy.interp(nq, ncw[d], nsm[d]),
                                      dtype=self.dtype, device=self.device)
@@ -627,7 +651,7 @@ class RunningConditionalQuantile:
         self.call_stats = defaultdict(int)
         self.running_quantiles = {}
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.rq_args = dict(r=r, buffersize=buffersize,
                             seed=seed)
@@ -736,7 +760,7 @@ class RunningVariance:
 
     def __init__(self, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.count = 0
         self.batchcount = 0
@@ -748,7 +772,7 @@ class RunningVariance:
             a = a[None, :]
         if len(a.shape) > 2:
             a = (a.view(a.shape[0], a.shape[1], -1).permute(0, 2, 1)
-                 .contiguous().view(-1, a.shape[1]))
+                 .reshape(-1, a.shape[1]))
         batch_count = a.shape[0]
         batch_mean = a.sum(0) / batch_count
         centered = a - batch_mean
@@ -806,7 +830,7 @@ class RunningConditionalVariance:
     def __init__(self, state=None):
         self.running_var = {}
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
 
     def add(self, condition, incoming):
@@ -869,14 +893,15 @@ class RunningCrossCovariance:
     Chan, Golub. LeVeque. 1983. http://www.jstor.org/stable/2683386
     '''
 
-    def __init__(self, state=None):
+    def __init__(self, split_batch=True, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.count = 0
         self._mean = None
         self.cmom2 = None
         self.v_cmom2 = None
+        self.split_batch = split_batch
 
     def add(self, a, b):
         if len(a.shape) == 1:
@@ -884,13 +909,16 @@ class RunningCrossCovariance:
             b = b[None, :]
         assert(a.shape[0] == b.shape[0])
         if len(a.shape) > 2:
-            a, b = [d.view(d.shape[0], d.shape[1], -1).permute(0, 2, 1
-                                                               ).contiguous().view(-1, d.shape[1]) for d in [a, b]]
+            a, b = [d.view(d.shape[0], d.shape[1], -1).permute(0, 2, 1)
+                    .reshape(-1, d.shape[1]) for d in [a, b]]
         batch_count = a.shape[0]
         batch_mean = [d.sum(0) / batch_count for d in [a, b]]
         centered = [d - bm for d, bm in zip([a, b], batch_mean)]
         # If more than 10 billion operations, divide into batches.
-        sub_batch = -(-(10 << 30) // (a.shape[1] * b.shape[1]))
+        if self.split_batch:
+            sub_batch = -(-(10 << 30) // (a.shape[1] * b.shape[1]))
+        else:
+            sub_batch = None
         # Initial batch.
         if self._mean is None:
             self.count = batch_count
@@ -972,13 +1000,14 @@ class RunningCovariance:
     Chan, Golub. LeVeque. 1983. http://www.jstor.org/stable/2683386
     '''
 
-    def __init__(self, state=None):
+    def __init__(self, split_batch=True, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.count = 0
         self._mean = None
         self.cmom2 = None
+        self.split_batch = split_batch
 
     def add(self, a):
         if len(a.shape) == 1:
@@ -987,7 +1016,10 @@ class RunningCovariance:
         batch_mean = a.sum(0) / batch_count
         centered = a - batch_mean
         # If more than 10 billion operations, divide into batches.
-        sub_batch = -(-(10 << 30) // (a.shape[1] * a.shape[1]))
+        if self.split_batch:
+            sub_batch = -(-(10 << 30) // (a.shape[1] * b.shape[1]))
+        else:
+            sub_batch = None
         # Initial batch.
         if self._mean is None:
             self.count = batch_count
@@ -1027,10 +1059,16 @@ class RunningCovariance:
     def covariance(self):
         return self.cmom2 / self.count
 
+    def covariancePSD(self):
+        return nearestCov(self.covariance())
+
     def correlation(self):
         covariance = self.covariance()
         rstdev = covariance.diag().sqrt().reciprocal()
         return rstdev[:, None] * covariance * rstdev[None, :]
+
+    def correlationPSD(self):
+        return nearestCorr(self.correlation())
 
     def variance(self):
         return self.covariance().diag()
@@ -1059,12 +1097,13 @@ class RunningSecondMoment:
     in the GPU.
     '''
 
-    def __init__(self, state=None):
+    def __init__(self, split_batch=True, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.count = 0
         self.mom2 = None
+        self.split_batch = split_batch
 
     def add(self, a):
         if len(a.shape) == 1:
@@ -1074,7 +1113,10 @@ class RunningSecondMoment:
             self.mom2 = a.new(a.shape[1], a.shape[1]).zero_()
         batch_count = a.shape[0]
         # If more than 10 billion operations, divide into batches.
-        sub_batch = -(-(10 << 30) // (a.shape[1] * a.shape[1]))
+        if self.split_batch:
+            sub_batch = -(-(10 << 30) // (a.shape[1] * b.shape[1]))
+        else:
+            sub_batch = None
         # Update the covariance using the batch deviation
         self.count += batch_count
         progress_addbmm(self.mom2, a[:, :, None], a[:, None, :], sub_batch)
@@ -1090,6 +1132,9 @@ class RunningSecondMoment:
 
     def moment(self):
         return self.mom2 / self.count
+
+    def momentPSD(self):
+        return nearestCov(self.moment())
 
     def state_dict(self):
         return dict(
@@ -1111,7 +1156,7 @@ class RunningBincount:
 
     def __init__(self, state=None):
         if state is not None:
-            self.set_state_dict(state)
+            self.set_state_dict(resolve_state_dict(state))
             return
         self.count = 0
         self._bincount = None
@@ -1166,7 +1211,7 @@ def progress_addbmm(accum, x, y, batch_size):
     Break up very large adbmm operations into batches so progress can be seen.
     '''
     from . import pbar
-    if x.shape[0] <= batch_size:
+    if batch_size is None or x.shape[0] <= 3 * batch_size:
         return accum.addbmm_(x, y)
     for i in pbar(range(0, x.shape[0], batch_size), desc='bmm'):
         accum.addbmm_(x[i:i + batch_size], y[i:i + batch_size])
@@ -1177,6 +1222,12 @@ def sample_portion(vec, p=0.5):
     bits = torch.bernoulli(torch.zeros(vec.shape[0], dtype=torch.uint8,
                                        device=vec.device), p)
     return vec[bits]
+
+
+def resolve_state_dict(s):
+    if isinstance(s, str):
+        return numpy.load(s, allow_pickle=True)
+    return s
 
 
 if __name__ == '__main__':
@@ -1258,3 +1309,196 @@ if __name__ == '__main__':
     assert interr < 0.01
     assert abs(counterr) < 0.001
     print("OK")
+
+
+class RunningAllIntersectionAndUnion:
+    '''
+    Running computation of intersections and unions of two binary vectors.
+    '''
+
+    def __init__(self, state=None):
+        if state is not None:
+            self.set_state_dict(resolve_state_dict(state))
+            return
+        self.count = 0
+        self.intersection = None
+        self.total_a = None
+        self.total_b = None
+
+    def add(self, S, G):
+        assert len(S.shape) == 2 and len(G.shape) == 2
+        assert S.dtype == torch.bool and G.dtype == torch.bool
+        assert len(S) == len(G), f'{len(S)} vs {len(G)}'
+        S = S.float()  # CUDA only supports mm on float...
+        G = G.float()  # otherwise we would use integers.
+        intersection = torch.mm(S.t(), G)
+        ssum = S.sum(0)
+        gsum = G.sum(0)
+        if self.intersection is None:
+            self.intersection = intersection
+            self.total_a = ssum
+            self.total_b = gsum
+        else:
+            self.intersection += intersection
+            self.total_a += ssum
+            self.total_b += gsum
+        self.count += len(S)
+
+    def size(self):
+        return self.count
+
+    def iou(self):
+        union = self.total_a[:, None] + self.total_b[None, :] - self.intersection
+        out = self.intersection / (union + 1e-20)
+        return out
+
+    def to_(self, _device):
+        self.total_a = self.total_a.to(_device)
+        self.total_b = self.total_b.to(_device)
+        self.intersection = self.intersection.to(_device)
+
+    def state_dict(self):
+        return dict(constructor=self.__module__ + '.' +
+                    self.__class__.__name__ + '()',
+                    count=self.count,
+                    total_a=self.total_a.cpu().numpy(),
+                    total_b=self.total_b.cpu().numpy(),
+                    intersection=self.intersection.cpu().numpy())
+
+    def set_state_dict(self, dic):
+        self.count = dic['count'].item()
+        self.total_a = torch.tensor(dic['total_a'])
+        self.total_b = torch.tensor(dic['total_b'])
+        self.intersection = torch.tensor(dic['intersection'])
+
+
+class RunningConditionalVariance:
+    def __init__(self, state=None):
+        self.running_var = {}
+        if state is not None:
+            self.set_state_dict(resolve_state_dict(state))
+            return
+
+    def add(self, condition, incoming):
+        if condition not in self.running_var:
+            self.running_var[condition] = RunningVariance()
+        rv = self.running_var[condition]
+        rv.add(incoming)
+
+    def collected_add(self, conditions, incoming):
+        for c in conditions:
+            self.add(c, incoming)
+
+    def keys(self):
+        return self.running_var.keys()
+
+    def conditional(self, c):
+        return self.running_var[c]
+
+    def has_conditional(self, c):
+        return c in self.running_var
+
+    def to_(self, device, conditions=None):
+        if conditions is None:
+            conditions = self.keys()
+        for cond in conditions:
+            if cond in self.running_var:
+                self.running_var[cond].to_(device)
+
+    def state_dict(self):
+        conditions = sorted(self.running_var.keys())
+        result = dict(
+            constructor=self.__module__ + '.' +
+            self.__class__.__name__ + '()',
+            conditions=conditions)
+        for i, c in enumerate(conditions):
+            result.update({
+                '%d.%s' % (i, k): v
+                for k, v in self.running_var[c].state_dict().items()})
+        return result
+
+    def set_state_dict(self, dic):
+        conditions = list(dic['conditions'])
+        subdicts = defaultdict(dict)
+        for k, v in dic.items():
+            if '.' in k:
+                p, s = k.split('.', 1)
+                subdicts[p][s] = v
+        self.running_var = {
+            c: RunningVariance(state=subdicts[str(i)])
+            for i, c in enumerate(conditions)}
+
+
+from statsmodels.stats.correlation_tools import cov_nearest, corr_nearest
+def nearestCov(A):
+    '''
+    Find the positive-semidefinite near to A with the corlelation
+    matrix nearest A.
+    '''
+    npA = A.detach().cpu().double().numpy()
+    npPD = cov_nearest(A, method='nearest')
+    return torch.from_numpy(npPD).to(A.device, A.dtype)
+
+def nearestCorr(A):
+    '''
+    Find the positive-semidefinite near to A with the corlelation
+    matrix nearest A.
+    '''
+    npA = A.detach().cpu().double().numpy()
+    npPD = corr_nearest(A)
+    return torch.from_numpy(npPD).to(A.device, A.dtype)
+
+
+from numpy import linalg
+import numpy
+def nearestPD(A):
+    """Find the nearest positive-definite matrix to input
+
+    A pytorch port of Ahmed Fasih's Numpy port [1] of John D'Errico's
+    `nearestSPD` MATLAB code [2], which credits [3].
+
+    [1] https://stackoverflow.com/a/43244194/265298
+
+    [2] https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+
+    [3] N.J. Higham, "Computing a nearest symmetric positive semidefinite
+    matrix" (1988): https://doi.org/10.1016/0024-3795(88)90223-6
+    """
+    B = (A + A.T) / 2
+    _, s, V = torch.svd(B)
+    H = torch.mm(V.T, np.dot(np.diag(s), V))
+
+    A2 = (B + H) / 2
+
+    A3 = (A2 + A2.T) / 2
+
+    if isPD(A3):
+        return A3
+
+    spacing = numpy.spacing(linalg.norm(A))
+    # The above is different from [1]. It appears that MATLAB's `chol` Cholesky
+    # decomposition will accept matrixes with exactly 0-eigenvalue, whereas
+    # Numpy's will not. So where [1] uses `eps(mineig)` (where `eps` is Matlab
+    # for `np.spacing`), we use the above definition. CAVEAT: our `spacing`
+    # will be much larger than [1]'s `eps(mineig)`, since `mineig` is usually on
+    # the order of 1e-16, and `eps(1e-16)` is on the order of 1e-34, whereas
+    # `spacing` will, for Gaussian random matrixes of small dimension, be on
+    # othe order of 1e-16. In practice, both ways converge, as the unit test
+    # below suggests.
+    I = torch.eye(A.shape[0], dtype=A.dtype, device=A.device)
+    k = 1
+    while not isPD(A3):
+        mineig = np.min(np.real(la.eigvals(A3)))
+        A3 += I * (-mineig * k**2 + spacing)
+        k += 1
+
+    return A3
+
+def isPD(B):
+    """Returns true when input is positive-definite, via Cholesky"""
+    try:
+        B.choleksy()
+        return True
+    except la.LinAlgError:
+        return False
+

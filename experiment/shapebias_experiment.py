@@ -6,6 +6,8 @@ import re, torchvision, torch, os
 from IPython.display import SVG
 from matplotlib import pyplot as plt
 
+torch.set_grad_enabled(False)
+
 def normalize_filename(n):
     return re.match(r'^(.*Places365_\w+_\d+)', n).group(1)
 
