@@ -76,7 +76,7 @@ def training_loader(z_generator, batch_size, loader_size=10000):
     g_epoch = 1
     while True:
         z_data = z_dataset_for_model(
-            z_generator, size=epoch_size, seed=g_epoch + 1)
+            z_generator, size=loader_size, seed=g_epoch + 1)
         dataloader = torch.utils.data.DataLoader(
             z_data,
             shuffle=False,

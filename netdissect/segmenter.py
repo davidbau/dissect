@@ -82,7 +82,7 @@ class MergedSegmenter:
                 classnum -= self.offsets[i]
                 break
         return sgm.predict_single_class(tensor_images, classnum,
-                                        downsample=downsamples)
+                                        downsample=downsample)
 
 
 class NoSegmenter(BaseSegmenter):

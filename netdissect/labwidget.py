@@ -832,7 +832,7 @@ class ClickDiv(Div):
     '''
 
     def __init__(self, innerHTML='', **kwargs):
-        super().__init__(innertHTML, **kwargs)
+        super().__init__(innerHTML, **kwargs)
         self.click = Trigger()
 
     def widget_js(self):
