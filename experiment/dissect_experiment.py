@@ -192,13 +192,15 @@ def instrumented_layername(args):
     elif args.model == 'progan':
         return 'layer4'
 
-def load_model(args):
+def load_model(args, instrumented=True):
     '''Loads one of the benchmark classifiers or generators.'''
     if args.model in ['alexnet', 'vgg16', 'resnet152']:
         model = setting.load_classifier(args.model)
     elif args.model == 'progan':
         model = setting.load_proggan(args.dataset)
-    model = nethook.InstrumentedModel(model).cuda().eval()
+    if instrumented:
+        model = nethook.InstrumentedModel(model)
+    model = model.cuda().eval()
     return model
 
 def load_dataset(args, model=None):

@@ -3,7 +3,7 @@ import re
 import copy
 import numpy
 from torch.utils.data.dataloader import default_collate
-from netdissect import nethook, imgviz, tally, unravelconv, upsample
+from netdissect import nethook, imgviz, tally, unravelconv, upsample, renormalize
 
 
 def acts_image(model, dataset,
@@ -305,12 +305,13 @@ def proj_c2m(model, dataset, layer,
     def ex_sample(x, *args):
         r = ex_run(x, *args)
         return r.permute(0, 2, 3, 1).reshape(-1, r.shape[1])
-    c2m = tally.tally_second_moment(ex_sample,
-                                    dataset,
-                                    batch_size=batch_size,
-                                    num_workers=num_workers, pin_memory=pin_memory,
-                                    sample_size=sample_size,
-                                    cachefile=f'{cachedir}/input_cov_moment.npz' if cachedir else None)
+    c2m = tally.tally_second_moment(
+        ex_sample,
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers, pin_memory=pin_memory,
+        sample_size=sample_size,
+        cachefile=f'{cachedir}/input_cov_moment.npz' if cachedir else None)
     return c2m, ex_run
 
 
@@ -420,9 +421,7 @@ def label_stats(dataset_with_seg, num_seglabels,
         cachefile=f'{cachedir}/{neg}{run.name}_iu.npz' if cachedir else None)
     return iu99
 
-
-def topk_label_stats(dataset_with_seg, num_seglabels,
-                     run, level, topk, k=None,
+def topk_label_stats(dataset, run, level, topk, k=None,
                      upfn=None,
                      negate=False,
                      cachedir=None,
@@ -430,30 +429,29 @@ def topk_label_stats(dataset_with_seg, num_seglabels,
                      sample_size=None,
                      num_workers=30):
     # Create upfn
-    data_sample = default_collate([dataset_with_seg[0]])
-    input_sample = data_sample[:-2] + data_sample[-1:]
-    seg_sample = data_sample[-2]
-    r_sample = run(*input_sample)
+    data_sample = default_collate([dataset[0]])
+    r_sample, seg_sample = run(*data_sample)
     r_size = tuple(r_sample.shape[2:])
     seg_size = tuple(seg_sample.shape[2:])
     device = r_sample.device
     num_units = r_sample.shape[1]
+    assert level.shape[0] == num_units and len(level.shape) == 1
+    level = level[None,:,None,None].to(device)
     pin_memory = (device.type != 'cpu')
+    num_seglabels = run.num_seglabels
     if upfn is None:
         upfn = upsample.upsampler(seg_size, r_size)
     intersections = torch.zeros(num_units, num_seglabels).to(device)
     unions = torch.zeros(num_units, num_seglabels).to(device)
-
-    def collate_unit_iou(units, imgs, seg, labels):
-        seg = seg.to(device)
-        acts = run(imgs, labels)
+    def collate_unit_iou(units, *batch):
+        acts, seg = [d.to(device) for d in run(*batch)]
         hacts = upfn(acts)
         iacts = (hacts > level)  # indicator
         iseg = torch.zeros(seg.shape[0], num_seglabels,
                            seg.shape[2], seg.shape[3],
                            dtype=torch.bool, device=seg.device)
         iseg.scatter_(dim=1, index=seg, value=1)
-        for i in range(len(imgs)):
+        for i in range(len(iacts)):
             ulist = units[i]
             for unit, _ in ulist:
                 im_i = (iacts[i, unit][None] & iseg[i]).view(
@@ -463,5 +461,37 @@ def topk_label_stats(dataset_with_seg, num_seglabels,
                 intersections[unit] += im_i
                 unions[unit] += im_u
         return []
-    tally.gather_topk(collate_unit_iou, dataset_with_seg, topk, k=100)
+    tally.gather_topk(collate_unit_iou, dataset, topk, k=100)
     return intersections / (unions + 1e-20)
+
+def make_rws_for_segmenter(run, dataset, segmenter, downsample=1):
+    renorm = renormalize.renormalizer(dataset, target='zc')
+    seglabels, _ = segmenter.get_label_and_category_names()
+    num_seglabels = len(seglabels)
+    def rws(*batch):
+        batch = [d.cuda() for d in batch]
+        images = batch[0]
+        seg_batch = segmenter.segment_batch(images, downsample=downsample)
+        r = run(*batch)
+        return r, seg_batch
+    rws.num_seglabels = num_seglabels
+    return rws
+
+def topk_label_stats_using_segmodel(
+        dataset, segmodel, run, level, topk, downsample=1, **kwargs):
+    rws = make_rws_for_segmenter(run, dataset, segmodel, downsample=downsample)
+    return topk_label_stats(dataset, rws, level, topk, **kwargs)
+
+def make_rws_for_dataset_with_seg(run, num_seglabels):
+    def rws(*batch_with_seg):
+        input_batch = batch_with_seg[:1] + batch_with_seg[2:]
+        seg_batch = batch_with_seg[2]
+        r = run(input_batch)
+        return r, seg_batch
+    rws.num_seglabels = num_seglabels
+    return rws
+
+def topk_label_stats_using_dataseat_with_seg(
+        dataset_with_seg, num_seglabels, run, level, topk, **kwargs):
+    rws = make_rws_for_dataset_with_seg(run, num_seglabels)
+    return topk_label_stats(dataset, rws, level, topk, **kwargs)
