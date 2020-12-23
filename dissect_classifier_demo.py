@@ -85,7 +85,7 @@ unit_label_99 = [
         (concept.item(), seglabels[concept], segcatlabels[concept], bestiou.item())
         for (bestiou, concept) in zip(*all_iou.max(1))]
 label_list = [labelcat for concept, label, labelcat, iou in unit_label_99 if iou > 0.04]
-experiment.save_conceptcat_graph(resfile('unit_concepts.svg'), conceptcatlist)
+experiment.save_conceptcat_graph(resfile('unit_concepts.svg'), label_list)
 
 # Now let's pull out the higest-activating units for one image.
 image_number = 10000
@@ -102,12 +102,12 @@ fmax_as_percentile = rq.normalize(fmax)
 top_by_q = fmax_as_percentile.sort(0, descending=True)[1][:6]
 
 # Now save some files
-os.makedirs(resfile('im_{image_number}_example'))
+os.makedirs(resfile(f'im_{image_number}_example'), exist_ok=True)
 activations = r[0]
-for i, u in eumerate(top_by_q):
-    iv.masked_images(im, activations, u.item(), level=level[u]).save(
-            resfile('im_{image_number}_example/{i}_a_image_unit_{u}.jpeg'))
+for i, u in enumerate(top_by_q):
+    iv.masked_image(im, activations, u.item(), level=level[u]).save(
+            resfile(f'im_{image_number}_example/{i}_a_image_unit_{u}.jpeg'))
     unit_images[u].save(
-            resfile('im_{image_number}_example/{i}_b_rep_unit_{u}.jpeg'))
+            resfile(f'im_{image_number}_example/{i}_b_rep_unit_{u}.jpeg'))
 
 
