@@ -1017,7 +1017,7 @@ class RunningCovariance:
         centered = a - batch_mean
         # If more than 10 billion operations, divide into batches.
         if self.split_batch:
-            sub_batch = -(-(10 << 30) // (a.shape[1] * a.shape[1])
+            sub_batch = -(-(10 << 30) // (a.shape[1] * b.shape[1]))
         else:
             sub_batch = None
         # Initial batch.
